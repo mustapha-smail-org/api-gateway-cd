@@ -1,0 +1,106 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options: [staging, production]
+      image_digest:
+        description: 'Immutable OCI image digest (sha256:...)'
+        required: true
+        type: string
+      source_commit:
+        description: 'Source commit SHA the image was built from'
+        required: true
+        type: string
+      image_tag:
+        description: 'Human-readable tag for this deployment (sha-xxxxxxx or vX.Y.Z)'
+        required: true
+        type: string
+      health_check_url:
+        description: 'Optional base URL for post-deploy health verification'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cd-state-catalog-service-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  update-desired-state:
+    runs-on: ubuntu-latest
+    outputs:
+      image-repository: ${{ steps.read.outputs.image_repository }}
+    steps:
+      - name: Obtain GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
+        with:
+          app-id: ${{ vars.AUTOMATION_APP_ID }}
+          private-key: ${{ secrets.AUTOMATION_APP_PRIVATE_KEY }}
+
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Validate digest format
+        run: |
+          if [[ ! "${{ inputs.image_digest }}" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+            echo "::error::image_digest must be an immutable sha256 digest, got: ${{ inputs.image_digest }}"
+            exit 1
+          fi
+
+      - name: Update environment desired state
+        env:
+          ENV_FILE: environments/${{ inputs.environment }}.yaml
+        run: |
+          if [ ! -f "$ENV_FILE" ]; then
+            echo "::error::No such environment file: $ENV_FILE"
+            exit 1
+          fi
+          sed -i.bak -E \
+            -e "s|^(  tag: ).*|\1${{ inputs.image_tag }}|" \
+            -e "s|^(  digest: \").*(\")$|\1${{ inputs.image_digest }}\2|" \
+            -e "s|^(  commit: \").*(\")$|\1${{ inputs.source_commit }}\2|" \
+            "$ENV_FILE"
+          rm -f "${ENV_FILE}.bak"
+          cat "$ENV_FILE"
+
+      - name: Read image repository
+        id: read
+        run: |
+          IMAGE_REPO=$(grep -E '^\s*imageRepository:' service.yaml | sed -E 's/^\s*imageRepository:\s*//')
+          echo "image_repository=${IMAGE_REPO}" >> "$GITHUB_OUTPUT"
+
+      - name: Commit desired state
+        run: |
+          git config user.name "city-pulse-automation"
+          git config user.email "automation@citypulse.local"
+          git add environments/
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore(${{ inputs.environment }}): deploy catalog-service ${{ inputs.image_tag }}"
+            git push
+          fi
+
+  deploy:
+    needs: [update-desired-state]
+    uses: mustapha-smail-org/deployment-workflows/.github/workflows/deploy-vps.yml@main
+    with:
+      service-name: catalog-service
+      environment: ${{ inputs.environment }}
+      image-digest: ${{ inputs.image_digest }}
+    secrets:
+      vps-host: ${{ secrets.VPS_HOST }}
+      vps-user: ${{ secrets.VPS_USER }}
+      vps-ssh-private-key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+      vps-known-hosts: ${{ secrets.VPS_KNOWN_HOSTS }}
