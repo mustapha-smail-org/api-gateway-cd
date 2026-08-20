@@ -4,8 +4,8 @@
 # placeholders until the first release runs — do not edit them by hand.
 environment: staging
 image:
-  tag: unset
-  digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  tag: v0.1.0
+  digest: "sha256:b11b05793e07cb1e7aee9dfa79f73b33552d7c441c09f898dedf32f2b65ecfc7"
 source:
   repository: mustapha-smail-org/api-gateway
-  commit: "0000000"
+  commit: "917a7996103e3ba171c57af37fdb61b13e17691e"
