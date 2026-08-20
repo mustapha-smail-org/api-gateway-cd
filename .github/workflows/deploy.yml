@@ -30,7 +30,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: cd-state-catalog-service-${{ inputs.environment }}
+  group: cd-state-api-gateway-${{ inputs.environment }}
   cancel-in-progress: false
 
 jobs:
@@ -88,7 +88,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "chore(${{ inputs.environment }}): deploy catalog-service ${{ inputs.image_tag }}"
+            git commit -m "chore(${{ inputs.environment }}): deploy api-gateway ${{ inputs.image_tag }}"
             git push
           fi
 
@@ -96,7 +96,7 @@ jobs:
     needs: [update-desired-state]
     uses: mustapha-smail-org/deployment-workflows/.github/workflows/deploy-vps.yml@main
     with:
-      service-name: catalog-service
+      service-name: api-gateway
       environment: ${{ inputs.environment }}
       image-digest: ${{ inputs.image_digest }}
     secrets:
